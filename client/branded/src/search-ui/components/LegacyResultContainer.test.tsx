@@ -1,8 +1,8 @@
-import { afterAll, describe, expect, it } from '@jest/globals'
 import { cleanup, fireEvent, getByTestId, getByText } from '@testing-library/react'
 import * as H from 'history'
 import FileIcon from 'mdi-react/FileIcon'
 import sinon from 'sinon'
+import { afterAll, describe, expect, it } from 'vitest'
 
 import { NOOP_TELEMETRY_SERVICE } from '@sourcegraph/shared/src/telemetry/telemetryService'
 import {

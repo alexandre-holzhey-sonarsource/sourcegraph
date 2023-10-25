@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from '@jest/globals'
 import sinon from 'sinon'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
 import { getDocumentNode } from '@sourcegraph/http-client'
 import { NOOP_TELEMETRY_SERVICE } from '@sourcegraph/shared/src/telemetry/telemetryService'
