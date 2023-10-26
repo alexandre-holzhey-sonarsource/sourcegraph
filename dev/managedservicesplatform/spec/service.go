@@ -16,15 +16,19 @@ type ServiceSpec struct {
 	// Owners denotes the teams or individuals primarily responsible for the
 	// service.
 	Owners []string `json:"owners"`
+
 	// EnvVarPrefix is an optional prefix for env vars exposed specifically for
 	// the service, e.g. "CODY_GATEWAY_". If empty, default the an capitalized,
 	// lowercase-delimited version of the service ID.
 	EnvVarPrefix *string `json:"envVarPrefix,omitempty"`
 
+	// Kind is the type of the service, either 'service' or 'job'. Defaults to
+	// 'service'.
+	Kind *ServiceKind
 	// Protocol is a protocol other than HTTP that the service communicates
 	// with. If empty, the service uses HTTP. To use gRPC, configure 'h2c':
 	// https://cloud.google.com/run/docs/configuring/http2
-	Protocol *Protocol `json:"protocol,omitempty"`
+	Protocol *ServiceProtocol `json:"protocol,omitempty"`
 
 	// ProjectIDSuffixLength can be configured to truncate the length of the
 	// service's generated project IDs.
@@ -50,9 +54,16 @@ func (s ServiceSpec) Validate() []error {
 	return errs
 }
 
-type Protocol string
+type ServiceProtocol string
 
-const ProtocolH2C Protocol = "h2c"
+const ServiceProtocolH2C ServiceProtocol = "h2c"
+
+type ServiceKind string
+
+const (
+	ServiceKindService = "service"
+	ServiceKindJob     = "job"
+)
 
 type ServiceIAMSpec struct {
 	// Services is a list of GCP services to enable in the service's project.

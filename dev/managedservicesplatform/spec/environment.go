@@ -108,7 +108,9 @@ type EnvironmentDomainCloudflareSpec struct {
 
 type EnvironmentInstancesSpec struct {
 	Resources EnvironmentInstancesResourcesSpec `json:"resources"`
-	Scaling   EnvironmentInstancesScalingSpec   `json:"scaling"`
+	// Scaling specifies the scaling behavior of the service.
+	// Only used for services of 'kind: service'.
+	Scaling EnvironmentInstancesScalingSpec `json:"scaling"`
 }
 
 type EnvironmentInstancesResourcesSpec struct {
