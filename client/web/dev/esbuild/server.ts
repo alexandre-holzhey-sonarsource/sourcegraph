@@ -49,7 +49,7 @@ export const esbuildDevelopmentServer = async (
     proxyApp.use(
         assetPathPrefix,
         createProxyMiddleware({
-            target: { protocol: 'http:', host: esbuildHost, port: esbuildPort },
+            target: { protocol: 'http:', host: esbuildHost, port: 5173 /* esbuildPort TODO(sqs) */ },
             pathRewrite: { [`^${assetPathPrefix}`]: '' },
             onProxyRes: (_proxyResponse, request, response) => {
                 // Cache chunks because their filename includes a hash of the content.
