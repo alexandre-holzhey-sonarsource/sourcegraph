@@ -9,6 +9,7 @@ load("@aspect_rules_esbuild//esbuild:defs.bzl", "esbuild")
 load("//dev:esbuild.bzl", "esbuild_web_app")
 load("@aspect_rules_ts//ts:defs.bzl", "ts_config")
 load("//dev:eslint.bzl", "eslint_config_and_lint_root", "eslint_test_with_types")
+load("//dev:vite/vite.bzl", "vite_project")
 
 # TODO(bazel): storybook build
 # gazelle:exclude **/*.story.{ts,tsx}
@@ -2133,6 +2134,13 @@ esbuild(
     splitting = True,
     visibility = ["//client/web/dist:__subpackages__"],
     deps = ESBUILD_CONFIG_DEPS,
+)
+
+vite_project(
+    name = "bundle-vite",
+    config = "vite.config.ts",
+    #tsconfig = ":tsconfig",
+    tsconfig = "tsconfig.json",
 )
 
 # Used for integration tests.
