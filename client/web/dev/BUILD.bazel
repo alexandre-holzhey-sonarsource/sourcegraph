@@ -35,17 +35,19 @@ ts_project(
         "utils/index.ts",
         "utils/should-compress-response.ts",
         "utils/success-banner.ts",
+        "vite/manifestPlugin.ts",
+        "vite/vite.config.ts",
     ],
     tsconfig = ":tsconfig",
     visibility = ["//client/web:__subpackages__"],
     deps = [
-        "//:node_modules/@sentry/esbuild-plugin",
         "//:node_modules/@types/compression",
         "//:node_modules/@types/connect-history-api-fallback",
         "//:node_modules/@types/express",
         "//:node_modules/@types/lodash",
         "//:node_modules/@types/node",
         "//:node_modules/@types/signale",
+        "//:node_modules/@vitejs/plugin-react",
         "//:node_modules/chalk",
         "//:node_modules/compression",
         "//:node_modules/connect-history-api-fallback",
@@ -56,6 +58,7 @@ ts_project(
         "//:node_modules/jsonc-parser",
         "//:node_modules/lodash",
         "//:node_modules/signale",
+        "//:node_modules/vite",
         "//client/web:node_modules/@sourcegraph/build-config",
         "//client/web:web_lib",
     ],
@@ -64,6 +67,17 @@ ts_project(
 js_library(
     name = "esbuild-config-production",
     srcs = ["esbuild/bazel/esbuild.bazel.production.js"],
+    deps = [
+        "//client/build-config:build-config_lib",
+        "//client/web:node_modules/@sourcegraph/build-config",
+        "//client/web/dev",
+    ],
+)
+
+js_library(
+    name = "vite-config",
+    srcs = ["vite/vite.config.ts"],
+    visibility = ["//client/web:__subpackages__"],
     deps = [
         "//client/build-config:build-config_lib",
         "//client/web:node_modules/@sourcegraph/build-config",

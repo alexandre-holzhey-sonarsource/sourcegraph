@@ -2138,9 +2138,11 @@ esbuild(
 
 vite_project(
     name = "bundle-vite",
-    config = "vite.config.ts",
+    config = "//client/web/dev:vite-config",
+    #config = "//client/web/dev:",
     #tsconfig = ":tsconfig",
     tsconfig = "tsconfig.json",
+    deps = ["//client/web/dev"],
 )
 
 # Used for integration tests.

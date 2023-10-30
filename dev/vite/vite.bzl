@@ -1,48 +1,45 @@
 "# vite rule"
 
+load("@aspect_bazel_lib//lib:directory_path.bzl", "directory_path")
 load("@aspect_bazel_lib//lib:expand_make_vars.bzl", "expand_variables")
 load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_file_to_bin_action", "copy_files_to_bin_actions")
 load("@aspect_rules_js//js:libs.bzl", "js_lib_helpers")
 load("@aspect_rules_js//js:providers.bzl", "JsInfo", "js_info")
 load("@aspect_rules_ts//ts:defs.bzl", "TsConfigInfo")
+load("@aspect_rules_js//js:defs.bzl", "js_binary")
 
 _ATTRS = {
+    "config": attr.label(
+        mandatory = True,
+        allow_single_file = True,
+        doc = """Configuration file used for Vite""",
+    ),
+    "data": js_lib_helpers.JS_LIBRARY_DATA_ATTR,
     "deps": attr.label_list(
         default = [],
         doc = "A list of direct dependencies that are required to build the bundle",
         providers = [JsInfo],
     ),
-    "data": js_lib_helpers.JS_LIBRARY_DATA_ATTR,
     "entry_points": attr.label_list(
         allow_files = True,
-        doc = """The bundle's entry points (e.g. your main.js or app.js or index.js)
-
-Specify either this attribute or `entry_point`, but not both.
-""",
+        doc = """The bundle's entry points""",
     ),
     "srcs": attr.label_list(
         allow_files = True,
         default = [],
-        doc = """Source files to be made available to esbuild""",
-    ),
-    "config": attr.label(
-        mandatory = True,
-        allow_single_file = True,
-        doc = """Configuration file used for esbuild. Note that options set in this file may get overwritten. If you formerly used `args` from rules_nodejs' npm package `@bazel/esbuild`, replace it with this attribute.
-        TODO: show how to write a config file that depends on plugins, similar to the esbuild_config macro in rules_nodejs.
-    """,
+        doc = """Source files to be made available to Vite""",
     ),
     "tsconfig": attr.label(
         mandatory = True,
         allow_single_file = True,
-        doc = """TypeScript configuration file used by esbuild. Default to an empty file with no configuration.
-        
-        See https://esbuild.github.io/api/#tsconfig for more details
-    """,
+        doc = """TypeScript configuration file used by Vite""",
+    ),
+    "vite_js_bin": attr.label(
+        executable = True,
+        doc = "Override the default vite executable",
+        cfg = "exec",
     ),
 }
-
-_DEFAULT_VITE = "@npm//vite/bin:vite"
 
 def _bin_relative_path(ctx, file):
     prefix = ctx.bin_dir.path + "/"
@@ -53,7 +50,6 @@ def _bin_relative_path(ctx, file):
     # ctx.bin_dir until we reach execroot, then join that with the file path.
     up = "/".join([".." for _ in ctx.bin_dir.path.split("/")])
     return up + "/" + file.path
-
 
 def _vite_project_impl(ctx):
     node_toolinfo = ctx.toolchains["@rules_nodejs//nodejs:toolchain_type"].nodeinfo
@@ -78,7 +74,7 @@ def _vite_project_impl(ctx):
 
     config_bin_copy = copy_file_to_bin_action(ctx, ctx.file.config)
     other_inputs.append(config_bin_copy)
-    args.add("--config=%s" % _bin_relative_path(ctx, config_bin_copy))
+    args.add_all(["--config", _bin_relative_path(ctx, config_bin_copy)])
     args.add("build")
 
     input_sources = depset(
@@ -86,7 +82,7 @@ def _vite_project_impl(ctx):
             file
             for file in ctx.files.srcs
             if not (file.path.endswith(".d.ts") or file.path.endswith(".tsbuildinfo"))
-        ]) + entry_points_bin_copy + [tsconfig_bin_copy] + other_inputs + node_toolinfo.tool_files,
+        ]) + entry_points_bin_copy + [tsconfig_bin_copy] + other_inputs + node_toolinfo.tool_files + ctx.files.deps,
         transitive = [js_lib_helpers.gather_files_from_js_providers(
             targets = ctx.attr.srcs + ctx.attr.deps,
             include_transitive_sources = True,
@@ -99,16 +95,15 @@ def _vite_project_impl(ctx):
         "BAZEL_BINDIR": ctx.bin_dir.path,
     }
 
-    launcher = _DEFAULT_VITE
     ctx.actions.run(
         inputs = input_sources,
         outputs = output_sources,
-        arguments = args,
+        arguments = [args],
         progress_message = "Building Vite project %s" % (" ".join([_bin_relative_path(ctx, entry_point) for entry_point in entry_points])),
         execution_requirements = execution_requirements,
         mnemonic = "vite",
         env = env,
-        executable = launcher,
+        executable = ctx.executable.vite_js_bin,
     )
 
     npm_linked_packages = js_lib_helpers.gather_npm_linked_packages(
@@ -162,7 +157,7 @@ lib = struct(
     ],
 )
 
-vite_project = rule(
+_vite_project = rule(
     implementation = _vite_project_impl,
     attrs = _ATTRS,
     toolchains = lib.toolchains,
@@ -170,3 +165,48 @@ vite_project = rule(
 Runs Vite in Bazel
 """,
 )
+
+def vite_project(name, config, data = [], deps = [], entry_points = [], srcs = [], **kwargs):
+    """Runs Vite in Bazel.
+
+    Args:
+
+      name: A unique name for this rule.
+
+      config: The Vite config file.
+
+      data: Runtime dependencies that are passed to the Vite build.
+
+      deps: Other npm dependencies that are passed to the Vite build.
+
+      entry_points: The entry points to build.
+
+      srcs: Other sources that are passed to the Vite build.
+
+      **kwargs: Additional arguments
+    """
+    vite_js_entry_point = "_{}_vite_js_entry_point".format(name)
+    node_modules = "//:node_modules"
+    directory_path(
+        name = vite_js_entry_point,
+        directory = "{}/vite/dir".format(node_modules),
+        path = "bin/vite.js",
+    )
+
+    vite_js_bin = "_{}_vite_js_bin".format(name)
+    js_binary(
+        name = vite_js_bin,
+        data = ["%s/vite" % node_modules],
+        entry_point = vite_js_entry_point,
+    )
+
+    _vite_project(
+        name = name,
+        config = config,
+        data = data,
+        deps = deps,
+        entry_points = entry_points,
+        srcs = srcs,
+        vite_js_bin = vite_js_bin,
+        **kwargs
+    )
