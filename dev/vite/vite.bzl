@@ -51,7 +51,16 @@ def _bin_relative_path(ctx, file):
     up = "/".join([".." for _ in ctx.bin_dir.path.split("/")])
     return up + "/" + file.path
 
+def _filter_js(files):
+    return [f for f in files if f.extension == "js" or f.extension == "mjs"]
+
 def _vite_project_impl(ctx):
+    input_sources = copy_files_to_bin_actions(ctx, ctx.files.srcs)
+    entry_points = copy_files_to_bin_actions(ctx, _filter_js(ctx.files.entry_points))
+    inputs = entry_point + entry_points + input_sources + ctx.files.deps
+
+    args = ctx.actions.args()
+
     node_toolinfo = ctx.toolchains["@rules_nodejs//nodejs:toolchain_type"].nodeinfo
 
     entry_points = ctx.files.entry_points
@@ -77,6 +86,13 @@ def _vite_project_impl(ctx):
     args.add_all(["--config", _bin_relative_path(ctx, config_bin_copy)])
     args.add("build")
 
+    # Use `ts-node -T`
+    node_args = ctx.actions.args()
+    node_args.add_all(["--require", "ts-node/register/transpile-only", ctx.executable.vite_js_bin])
+    node_args.add(args)
+    node_executable = node_toolinfo.target_tool_path
+    #other_deps = ["//:node_modules/ts-node"]
+
     input_sources = depset(
         copy_files_to_bin_actions(ctx, [
             file
@@ -98,12 +114,12 @@ def _vite_project_impl(ctx):
     ctx.actions.run(
         inputs = input_sources,
         outputs = output_sources,
-        arguments = [args],
+        arguments = [node_args],
         progress_message = "Building Vite project %s" % (" ".join([_bin_relative_path(ctx, entry_point) for entry_point in entry_points])),
         execution_requirements = execution_requirements,
         mnemonic = "vite",
         env = env,
-        executable = ctx.executable.vite_js_bin,
+        executable = node_executable,
     )
 
     npm_linked_packages = js_lib_helpers.gather_npm_linked_packages(

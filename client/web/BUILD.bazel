@@ -2142,7 +2142,10 @@ vite_project(
     #config = "//client/web/dev:",
     #tsconfig = ":tsconfig",
     tsconfig = "tsconfig.json",
-    deps = ["//client/web/dev"],
+    deps = [
+        "//:node_modules/ts-node",
+        "//client/web/dev",
+    ],
 )
 
 # Used for integration tests.
