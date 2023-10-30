@@ -51,75 +51,53 @@ def _bin_relative_path(ctx, file):
     up = "/".join([".." for _ in ctx.bin_dir.path.split("/")])
     return up + "/" + file.path
 
+def _output_relative_path(f):
+    "Give the path from bazel-out/[arch]/bin to the given File object"
+    if f.short_path.startswith("../"):
+        return "external/" + f.short_path[3:]
+    return f.short_path
+
 def _filter_js(files):
     return [f for f in files if f.extension == "js" or f.extension == "mjs"]
 
 def _vite_project_impl(ctx):
     input_sources = copy_files_to_bin_actions(ctx, ctx.files.srcs)
     entry_points = copy_files_to_bin_actions(ctx, _filter_js(ctx.files.entry_points))
-    inputs = entry_point + entry_points + input_sources + ctx.files.deps
+    inputs = entry_points + input_sources + ctx.files.deps
 
     args = ctx.actions.args()
 
-    node_toolinfo = ctx.toolchains["@rules_nodejs//nodejs:toolchain_type"].nodeinfo
+    output_sources = [getattr(ctx.outputs, o) for o in dir(ctx.outputs)]
+    output_sources.append(ctx.actions.declare_directory(ctx.label.name))
+    args.add_all(["--outDir", output_sources[0].short_path])
 
-    entry_points = ctx.files.entry_points
-    entry_points_bin_copy = copy_files_to_bin_actions(ctx, entry_points)
-    entry_points_relative_paths = [_bin_relative_path(ctx, entry_point) for entry_point in entry_points_bin_copy]
+    config_file = copy_file_to_bin_action(ctx, ctx.file.config)
+    args.add_all(["--config", _output_relative_path(config_file)])
+    inputs.append(config_file)
 
-    tsconfig_bin_copy = copy_file_to_bin_action(ctx, ctx.file.tsconfig)
-    tsconfig_relative_path = _bin_relative_path(ctx, tsconfig_bin_copy)
-
-    output_sources = []
-    dist_dir = ctx.actions.declare_directory("dist")
-    output_sources.extend([dist_dir])
-
-    execution_requirements = {}
-    if "no-remote-exec" in ctx.attr.tags:
-        execution_requirements = {"no-remote-exec": "1"}
-
-    args = ctx.actions.args()
-    other_inputs = []
-
-    config_bin_copy = copy_file_to_bin_action(ctx, ctx.file.config)
-    other_inputs.append(config_bin_copy)
-    args.add_all(["--config", _bin_relative_path(ctx, config_bin_copy)])
     args.add("build")
-
-    # Use `ts-node -T`
-    node_args = ctx.actions.args()
-    node_args.add_all(["--require", "ts-node/register/transpile-only", ctx.executable.vite_js_bin])
-    node_args.add(args)
-    node_executable = node_toolinfo.target_tool_path
-    #other_deps = ["//:node_modules/ts-node"]
-
-    input_sources = depset(
-        copy_files_to_bin_actions(ctx, [
-            file
-            for file in ctx.files.srcs
-            if not (file.path.endswith(".d.ts") or file.path.endswith(".tsbuildinfo"))
-        ]) + entry_points_bin_copy + [tsconfig_bin_copy] + other_inputs + node_toolinfo.tool_files + ctx.files.deps,
-        transitive = [js_lib_helpers.gather_files_from_js_providers(
-            targets = ctx.attr.srcs + ctx.attr.deps,
-            include_transitive_sources = True,
-            include_declarations = False,
-            include_npm_linked_packages = True,
-        )],
-    )
-
-    env = {
-        "BAZEL_BINDIR": ctx.bin_dir.path,
-    }
+    args.add("--debug")
+    args.add("client/web")
 
     ctx.actions.run(
-        inputs = input_sources,
+        executable = ctx.executable.vite_js_bin,
+        arguments = [args],
+        inputs = depset(
+            inputs,
+            transitive = [js_lib_helpers.gather_files_from_js_providers(
+                targets = ctx.attr.srcs + ctx.attr.deps,
+                include_transitive_sources = True,
+                include_declarations = False,
+                include_npm_linked_packages = True,
+            )],
+        ),
         outputs = output_sources,
-        arguments = [node_args],
         progress_message = "Building Vite project %s" % (" ".join([_bin_relative_path(ctx, entry_point) for entry_point in entry_points])),
-        execution_requirements = execution_requirements,
-        mnemonic = "vite",
-        env = env,
-        executable = node_executable,
+        mnemonic = "Vite",
+        env = {
+            "BAZEL_BINDIR": ctx.bin_dir.path,
+            "COMPILATION_MODE": ctx.var["COMPILATION_MODE"],
+        },
     )
 
     npm_linked_packages = js_lib_helpers.gather_npm_linked_packages(
@@ -139,7 +117,7 @@ def _vite_project_impl(ctx):
         ctx = ctx,
         sources = output_sources_depset,
         data = ctx.attr.data,
-        # Since we're bundling, we don't propogate any transitive runfiles from dependencies
+        # Since we're bundling, we don't propagate any transitive runfiles from dependencies
         deps = [],
     )
 
@@ -153,14 +131,14 @@ def _vite_project_impl(ctx):
             npm_linked_packages = npm_linked_packages.direct,
             npm_package_store_deps = npm_package_store_deps,
             sources = output_sources_depset,
-            # Since we're bundling, we don't propogate linked npm packages from dependencies since
+            # Since we're bundling, we don't propagate linked npm packages from dependencies since
             # they are bundled and the dependencies are dropped. If a subset of linked npm
             # dependencies are not bundled it is up the the user to re-specify these in `data` if
             # they are runtime dependencies to progagate to binary rules or `srcs` if they are to be
             # propagated to downstream build targets.
             transitive_npm_linked_package_files = npm_linked_packages.direct_files,
             transitive_npm_linked_packages = npm_linked_packages.direct,
-            # Since we're bundling, we don't propogate any transitive sources from dependencies
+            # Since we're bundling, we don't propagate any transitive sources from dependencies
             transitive_sources = output_sources_depset,
         ),
     ]

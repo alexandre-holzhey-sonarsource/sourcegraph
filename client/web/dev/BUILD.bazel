@@ -64,73 +64,28 @@ ts_project(
     ],
 )
 
-js_library(
-    name = "esbuild-config-production",
-    srcs = ["esbuild/bazel/esbuild.bazel.production.js"],
-    deps = [
-        "//client/build-config:build-config_lib",
-        "//client/web:node_modules/@sourcegraph/build-config",
-        "//client/web/dev",
-    ],
-)
-
-js_library(
-    name = "vite-config",
-    srcs = ["vite/vite.config.ts"],
-    visibility = ["//client/web:__subpackages__"],
-    deps = [
-        "//client/build-config:build-config_lib",
-        "//client/web:node_modules/@sourcegraph/build-config",
-        "//client/web/dev",
-    ],
-)
-
 esbuild(
-    name = "esbuild-config-production_bundle",
+    name = "vite-config",
     srcs = [
-        ":esbuild-config-production",
+        ":dev",
     ],
-    entry_point = "esbuild/bazel/esbuild.bazel.production.js",
+    entry_point = "vite/vite.config.js",
     external = [
+        # suppress vite require-resolve-not-external warnings
+        "lightningcss",
         "fsevents",
-        "pnpapi",
-        "../../../../postcss.config",
-
-        # suppress esbuild require-resolve-not-external warnings
         "esbuild",
+        "@vitejs/plugin-react",
+        "vite",
         "path-browserify",
-        "monaco-yaml/lib/esm/monaco.contribution",
-        "monaco-yaml/lib/esm/yaml.worker",
-        "rxjs/_esm5/internal/OuterSubscriber",
-        "rxjs/_esm5/internal/util/subscribeToResult",
-        "rxjs/_esm5/internal/util/subscribeToArray",
-        "rxjs/_esm5/internal/Observable",
     ],
     format = "cjs",
     platform = "node",
     sourcemap = False,
     splitting = False,
     target = "es2022",
-    visibility = ["//client:__subpackages__"],
+    visibility = ["//client/web:__subpackages__"],
     deps = [
         "//:postcss_config_js",
-    ],
-)
-
-ts_project(
-    name = "dev_tests",
-    testonly = True,
-    srcs = ["esbuild/manifest.test.ts"],
-    tsconfig = ":tsconfig",
-    deps = [
-        ":dev",
-        "//:node_modules/vitest",
-    ],
-)
-
-vitest_test(
-    name = "test",
-    data = [
-        ":dev_tests",
     ],
 )

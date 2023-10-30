@@ -2115,7 +2115,6 @@ BUNDLE_DATA_DEPS = [
     # TODO(bazel): this is already in the main ts_project(srcs). Why also here?
     "src/enterprise/codeintel/configuration/schema.json",
     ":enterprise-yaml",
-    "//client/web/dev:esbuild-config-production_bundle",
 ]
 
 esbuild(
@@ -2138,12 +2137,17 @@ esbuild(
 
 vite_project(
     name = "bundle-vite",
+    srcs = BUNDLE_DATA_DEPS + [
+        ":web_lib",
+        "//:package_json",
+    ],
     config = "//client/web/dev:vite-config",
+    data = BUNDLE_DATA_DEPS,
     #config = "//client/web/dev:",
-    #tsconfig = ":tsconfig",
-    tsconfig = "tsconfig.json",
+    tsconfig = ":tsconfig",
+    #tsconfig = "tsconfig.json",
     deps = [
-        "//:node_modules/ts-node",
+        "//:node_modules/open-color",
         "//client/web/dev",
     ],
 )
