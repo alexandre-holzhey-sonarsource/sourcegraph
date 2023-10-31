@@ -15,13 +15,23 @@ type EnvironmentSpec struct {
 	// Category is either "test", "internal", or "external".
 	Category *EnvironmentCategory `json:"category,omitempty"`
 
-	Deploy    EnvironmentDeploySpec    `json:"deploy"`
+	Deploy EnvironmentDeploySpec `json:"deploy"`
+
 	Instances EnvironmentInstancesSpec `json:"instances"`
 
 	// Domain configures where the resource is externally accessible.
 	// Only used for services of 'kind: service'.
 	Domain *EnvironmentDomainSpec `json:"domain"`
 
+	// Env is key-value pairs of environment variables to set on the service.
+	//
+	// Values can be subsituted with supported runtime values with gotemplate, e.g., "{{ .ProjectID }}"
+	// 	- ProjectID: The project ID of the service.
+	//	- ServiceDnsName: The DNS name of the service.
+	Env       map[string]string `json:"env,omitempty"`
+	SecretEnv map[string]string `json:"secretEnv,omitempty"`
+
+	// Resources configures additional resources that a service may depend on.
 	Resources *EnvironmentResourcesSpec `json:"resources,omitempty"`
 
 	// StatupProbe is provisioned by default. It can be disabled with the
@@ -31,14 +41,6 @@ type EnvironmentSpec struct {
 	// LivenessProbe is only provisioned if this field is set.
 	// Only used for services of 'kind: service'.
 	LivenessProbe *EnvironmentLivenessProbeSpec `json:"livenessProbe,omitempty"`
-
-	// Env is key-value pairs of environment variables to set on the service.
-	//
-	// Values can be subsituted with supported runtime values with gotemplate, e.g., "{{ .ProjectID }}"
-	// 	- ProjectID: The project ID of the service.
-	//	- ServiceDnsName: The DNS name of the service.
-	Env       map[string]string `json:"env,omitempty"`
-	SecretEnv map[string]string `json:"secretEnv,omitempty"`
 }
 
 func (s EnvironmentSpec) Validate() []error {

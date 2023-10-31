@@ -2,10 +2,15 @@ package job
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/hashicorp/terraform-cdk-go/cdktf"
 	"github.com/sourcegraph/managed-services-platform-cdktf/gen/google/cloudrunv2job"
+	"github.com/sourcegraph/managed-services-platform-cdktf/gen/google/cloudrunv2jobiammember"
+	"github.com/sourcegraph/managed-services-platform-cdktf/gen/google/cloudschedulerjob"
 
+	"github.com/sourcegraph/sourcegraph/dev/managedservicesplatform/internal/resource/serviceaccount"
+	"github.com/sourcegraph/sourcegraph/dev/managedservicesplatform/internal/resourceid"
 	"github.com/sourcegraph/sourcegraph/dev/managedservicesplatform/internal/stack/cloudrun/internal/builder"
 	"github.com/sourcegraph/sourcegraph/lib/pointers"
 )
@@ -76,7 +81,7 @@ func (b *jobBuilder) Build(stack cdktf.TerraformStack, vars builder.Variables) (
 		}
 	}
 
-	return cloudrunv2job.NewCloudRunV2Job(stack, pointers.Ptr("cloudrun"), &cloudrunv2job.CloudRunV2JobConfig{
+	job := cloudrunv2job.NewCloudRunV2Job(stack, pointers.Ptr("cloudrun"), &cloudrunv2job.CloudRunV2JobConfig{
 		Name:     pointers.Ptr(vars.Service.ID),
 		Location: pointers.Ptr(vars.GCPRegion),
 
@@ -137,5 +142,42 @@ func (b *jobBuilder) Build(stack cdktf.TerraformStack, vars builder.Variables) (
 
 				Volumes: b.volumes,
 			},
-		}}), nil
+		}})
+
+	invoker := serviceaccount.New(stack, resourceid.New("job_invoker"), serviceaccount.Config{
+		ProjectID: vars.GCPProjectID,
+		AccountID: fmt.Sprintf("%s-job-sa", vars.Service.ID),
+		DisplayName: fmt.Sprintf("%s Job-Invoker Service Account",
+			pointers.Deref(vars.Service.Name, vars.Service.ID)),
+	})
+
+	_ = cloudrunv2jobiammember.NewCloudRunV2JobIamMember(stack, pointers.Ptr("cloudrun-scheduler-job-invoker"), &cloudrunv2jobiammember.CloudRunV2JobIamMemberConfig{
+		Name:     job.Name(),
+		Location: job.Location(),
+		Project:  &vars.GCPProjectID,
+		Member:   &invoker.Email,
+		Role:     pointers.Ptr("roles/run.invoker"),
+	})
+
+	_ = cloudschedulerjob.NewCloudSchedulerJob(stack, pointers.Ptr("scheduler"), &cloudschedulerjob.CloudSchedulerJobConfig{
+		Schedule:        pointers.Ptr("0 * * * *"), // TODO make configurable
+		TimeZone:        pointers.Ptr("Etc/UTC"),
+		AttemptDeadline: pointers.Ptr("320s"),
+		Region:          &vars.GCPProjectID,
+		HttpTarget: &cloudschedulerjob.CloudSchedulerJobHttpTarget{
+			HttpMethod: pointers.Ptr(http.MethodPost),
+			Uri: pointers.Ptr(fmt.Sprintf("https://%s-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/%s/jobs/%s:run",
+				*job.Location(), vars.GCPProjectID, vars.Service.ID)),
+
+			Headers: &map[string]*string{
+				"User-Agent": pointers.Ptr("MSP-Google-Cloud-Scheduler"),
+			},
+
+			OauthToken: &cloudschedulerjob.CloudSchedulerJobHttpTargetOauthToken{
+				ServiceAccountEmail: &invoker.Email,
+			},
+		},
+	})
+
+	return job, nil
 }
