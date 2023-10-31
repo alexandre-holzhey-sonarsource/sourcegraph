@@ -5,6 +5,7 @@ import (
 
 	"github.com/hashicorp/terraform-cdk-go/cdktf"
 	"github.com/sourcegraph/managed-services-platform-cdktf/gen/google/cloudrunv2service"
+	"github.com/sourcegraph/managed-services-platform-cdktf/gen/google/cloudrunv2serviceiammember"
 
 	"github.com/sourcegraph/sourcegraph/dev/managedservicesplatform/internal/stack/cloudrun/internal/builder"
 	"github.com/sourcegraph/sourcegraph/dev/managedservicesplatform/spec"
@@ -15,9 +16,9 @@ import (
 // Cloud Run Service. It's particularly useful for strongly typing fields that
 // the generated CDKTF library accepts as interface{} types.
 type serviceBuilder struct {
-	additionalEnv          []*cloudrunv2service.CloudRunV2ServiceTemplateContainersEnv
-	additionalVolumes      []*cloudrunv2service.CloudRunV2ServiceTemplateVolumes
-	additionalVolumeMounts []*cloudrunv2service.CloudRunV2ServiceTemplateContainersVolumeMounts
+	env          []*cloudrunv2service.CloudRunV2ServiceTemplateContainersEnv
+	volumes      []*cloudrunv2service.CloudRunV2ServiceTemplateVolumes
+	volumeMounts []*cloudrunv2service.CloudRunV2ServiceTemplateContainersVolumeMounts
 }
 
 var _ builder.Builder = (*serviceBuilder)(nil)
@@ -26,34 +27,47 @@ func NewBuilder() builder.Builder {
 	return &serviceBuilder{}
 }
 
-func (c *serviceBuilder) AddEnv(key, value string) {
-	c.additionalEnv = append(c.additionalEnv, &cloudrunv2service.CloudRunV2ServiceTemplateContainersEnv{
+func (b *serviceBuilder) AddEnv(key, value string) {
+	b.env = append(b.env, &cloudrunv2service.CloudRunV2ServiceTemplateContainersEnv{
 		Name:  pointers.Ptr(key),
 		Value: pointers.Ptr(value),
 	})
 }
 
-func (c *serviceBuilder) AddSecretEnv(key, secretName string) {
-	c.additionalEnv = append(c.additionalEnv, &cloudrunv2service.CloudRunV2ServiceTemplateContainersEnv{
+func (b *serviceBuilder) AddSecretEnv(key string, secret builder.SecretRef) {
+	b.env = append(b.env, &cloudrunv2service.CloudRunV2ServiceTemplateContainersEnv{
 		Name: pointers.Ptr(key),
 		ValueSource: &cloudrunv2service.CloudRunV2ServiceTemplateContainersEnvValueSource{
 			SecretKeyRef: &cloudrunv2service.CloudRunV2ServiceTemplateContainersEnvValueSourceSecretKeyRef{
-				Secret:  pointers.Ptr(secretName),
-				Version: pointers.Ptr("latest"),
+				Secret:  pointers.Ptr(secret.Name),
+				Version: pointers.Ptr(secret.Version),
 			},
 		},
 	})
 }
 
-func (c *serviceBuilder) AddVolumeMount(name, mountPath string) {
-	c.additionalVolumeMounts = append(c.additionalVolumeMounts, &cloudrunv2service.CloudRunV2ServiceTemplateContainersVolumeMounts{
-		MountPath: pointers.Ptr(mountPath),
+func (b *serviceBuilder) AddVolumeMount(name, mountPath string) {
+	b.volumeMounts = append(b.volumeMounts, &cloudrunv2service.CloudRunV2ServiceTemplateContainersVolumeMounts{
 		Name:      pointers.Ptr(name),
+		MountPath: pointers.Ptr(mountPath),
 	})
 }
 
-func (c *serviceBuilder) Build(stack cdktf.TerraformStack, vars builder.Variables) (cdktf.TerraformResource, error) {
-	// TODO Make this fancier, for now this is just a sketch of maybe CD?
+func (b *serviceBuilder) AddSecretVolume(name, mountPath string, secret builder.SecretRef, mode int) {
+	b.volumes = append(b.volumes, &cloudrunv2service.CloudRunV2ServiceTemplateVolumes{
+		Name: pointers.Ptr(name),
+		Secret: &cloudrunv2service.CloudRunV2ServiceTemplateVolumesSecret{
+			Secret: &secret.Name,
+			Items: []*cloudrunv2service.CloudRunV2ServiceTemplateVolumesSecretItems{{
+				Version: pointers.Ptr(secret.Version),
+				Mode:    pointers.Ptr(float64(mode)),
+				Path:    &mountPath,
+			}},
+		},
+	})
+}
+
+func (b *serviceBuilder) Build(stack cdktf.TerraformStack, vars builder.Variables) (builder.Resource, error) {
 	serviceImageTag, err := vars.Environment.Deploy.ResolveTag(vars.Image)
 	if err != nil {
 		return nil, err
@@ -67,16 +81,12 @@ func (c *serviceBuilder) Build(stack cdktf.TerraformStack, vars builder.Variable
 		}
 	}
 
-	containerEnvVars, err := makeContainerEnvVars(
-		vars.Environment.Env,
-		vars.Environment.SecretEnv,
-		envVariablesData{
-			ProjectID:      vars.GCPProjectID,
-			ServiceDnsName: fmt.Sprintf("%s.%s", vars.Environment.Domain.Cloudflare.Subdomain, vars.Environment.Domain.Cloudflare.Zone),
-		},
-	)
+	// For convenience
+	if vars.Environment.Instances.Scaling == nil {
+		vars.Environment.Instances.Scaling = &spec.EnvironmentInstancesScalingSpec{}
+	}
 
-	return cloudrunv2service.NewCloudRunV2Service(stack, pointers.Ptr("cloudrun"), &cloudrunv2service.CloudRunV2ServiceConfig{
+	svc := cloudrunv2service.NewCloudRunV2Service(stack, pointers.Ptr("cloudrun"), &cloudrunv2service.CloudRunV2ServiceConfig{
 		Name:     pointers.Ptr(vars.Service.ID),
 		Location: pointers.Ptr(vars.GCPRegion),
 
@@ -124,7 +134,7 @@ func (c *serviceBuilder) Build(stack cdktf.TerraformStack, vars builder.Variable
 				Image: pointers.Ptr(fmt.Sprintf("%s:%s", vars.Image, serviceImageTag)),
 
 				Resources: &cloudrunv2service.CloudRunV2ServiceTemplateContainersResources{
-					Limits: makeContainerResourceLimits(vars.Environment.Instances.Resources),
+					Limits: &vars.ResourceLimits,
 				},
 
 				Ports: []*cloudrunv2service.CloudRunV2ServiceTemplateContainersPorts{{
@@ -134,9 +144,7 @@ func (c *serviceBuilder) Build(stack cdktf.TerraformStack, vars builder.Variable
 					Name: (*string)(vars.Service.Protocol),
 				}},
 
-				Env: append(
-					containerEnvVars,
-					c.additionalEnv...),
+				Env: b.env,
 
 				// Do healthchecks with authorization based on MSP convention.
 				StartupProbe: func() *cloudrunv2service.CloudRunV2ServiceTemplateContainersStartupProbe {
@@ -184,9 +192,24 @@ func (c *serviceBuilder) Build(stack cdktf.TerraformStack, vars builder.Variable
 					}
 				}(),
 
-				VolumeMounts: c.additionalVolumeMounts,
+				VolumeMounts: b.volumeMounts,
 			}},
 
-			Volumes: c.additionalVolumes,
-		}}), nil
+			Volumes: b.volumes,
+		}})
+
+	// Allow IAM-free access to the service - auth should be handled generally
+	// by the service itself.
+	//
+	// TODO: Parameterize this so internal services can choose to auth only via
+	// GCP IAM?
+	_ = cloudrunv2serviceiammember.NewCloudRunV2ServiceIamMember(stack, pointers.Ptr("cloudrun-allusers-runinvoker"), &cloudrunv2serviceiammember.CloudRunV2ServiceIamMemberConfig{
+		Name:     svc.Name(),
+		Location: svc.Location(),
+		Project:  &vars.GCPProjectID,
+		Member:   pointers.Ptr("allUsers"),
+		Role:     pointers.Ptr("roles/run.invoker"),
+	})
+
+	return svc, nil
 }

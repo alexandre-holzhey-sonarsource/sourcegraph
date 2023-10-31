@@ -1,6 +1,8 @@
 package spec
 
 import (
+	"fmt"
+
 	"github.com/sourcegraph/sourcegraph/dev/managedservicesplatform/internal/imageupdater"
 	"github.com/sourcegraph/sourcegraph/lib/errors"
 )
@@ -14,15 +16,20 @@ type EnvironmentSpec struct {
 	Category *EnvironmentCategory `json:"category,omitempty"`
 
 	Deploy    EnvironmentDeploySpec    `json:"deploy"`
-	Domain    EnvironmentDomainSpec    `json:"domain"`
 	Instances EnvironmentInstancesSpec `json:"instances"`
+
+	// Domain configures where the resource is externally accessible.
+	// Only used for services of 'kind: service'.
+	Domain *EnvironmentDomainSpec `json:"domain"`
 
 	Resources *EnvironmentResourcesSpec `json:"resources,omitempty"`
 
 	// StatupProbe is provisioned by default. It can be disabled with the
 	// 'disabled' field.
+	// Only used for services of 'kind: service'.
 	StatupProbe *EnvironmentStartupProbeSpec `json:"startupProbe,omitempty"`
 	// LivenessProbe is only provisioned if this field is set.
+	// Only used for services of 'kind: service'.
 	LivenessProbe *EnvironmentLivenessProbeSpec `json:"livenessProbe,omitempty"`
 
 	// Env is key-value pairs of environment variables to set on the service.
@@ -121,6 +128,18 @@ type EnvironmentDomainSpec struct {
 	Cloudflare *EnvironmentDomainCloudflareSpec `json:"cloudflare,omitempty"`
 }
 
+// GetDNSName generates the DNS name for the environment. If nil or not configured,
+// am empty string is returned.
+func (s *EnvironmentDomainSpec) GetDNSName() string {
+	if s == nil {
+		return ""
+	}
+	if s.Cloudflare != nil {
+		return fmt.Sprintf("%s.%s", s.Cloudflare.Subdomain, s.Cloudflare.Zone)
+	}
+	return ""
+}
+
 type EnvironmentDomainType string
 
 const (
@@ -145,7 +164,7 @@ type EnvironmentInstancesSpec struct {
 	Resources EnvironmentInstancesResourcesSpec `json:"resources"`
 	// Scaling specifies the scaling behavior of the service.
 	// Only used for services of 'kind: service'.
-	Scaling EnvironmentInstancesScalingSpec `json:"scaling"`
+	Scaling *EnvironmentInstancesScalingSpec `json:"scaling"`
 }
 
 type EnvironmentInstancesResourcesSpec struct {

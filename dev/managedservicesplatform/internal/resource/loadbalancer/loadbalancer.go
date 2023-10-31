@@ -2,7 +2,7 @@ package loadbalancer
 
 import (
 	"github.com/aws/constructs-go/constructs/v10"
-	"github.com/sourcegraph/managed-services-platform-cdktf/gen/google/cloudrunv2service"
+	"github.com/hashicorp/terraform-cdk-go/cdktf"
 	"github.com/sourcegraph/managed-services-platform-cdktf/gen/google/computebackendservice"
 	"github.com/sourcegraph/managed-services-platform-cdktf/gen/google/computeglobaladdress"
 	"github.com/sourcegraph/managed-services-platform-cdktf/gen/google/computeglobalforwardingrule"
@@ -26,7 +26,11 @@ type Config struct {
 	ProjectID string
 	Region    string
 
-	TargetService cloudrunv2service.CloudRunV2Service
+	// TargetService should be cloudrunv2service.CloudRunV2Service
+	TargetService interface {
+		cdktf.TerraformResource
+		Name() *string
+	}
 
 	// SSLCertificate must be either computesslcertificate.ComputeSslCertificate
 	// or computemanagedsslcertificate.ComputeManagedSslCertificate. It's used

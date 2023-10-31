@@ -83,7 +83,7 @@ func init() {
 									Tag: "insiders",
 								},
 							},
-							Domain: spec.EnvironmentDomainSpec{
+							Domain: &spec.EnvironmentDomainSpec{
 								Type: "cloudflare",
 								Cloudflare: &spec.EnvironmentDomainCloudflareSpec{
 									Subdomain: c.Args().First(),
@@ -96,7 +96,7 @@ func init() {
 									CPU:    1,
 									Memory: "512Mi",
 								},
-								Scaling: spec.EnvironmentInstancesScalingSpec{
+								Scaling: &spec.EnvironmentInstancesScalingSpec{
 									MaxCount: pointers.Ptr(1),
 								},
 							},

@@ -25,6 +25,19 @@ type Variables struct {
 	// PrivateNetwork is configured if required as an internal network for the
 	// Cloud Run resource to talk to other GCP resources.
 	PrivateNetwork *privatenetwork.Output
+	// ResourceLimits is a map of resource limits for the Cloud Run resource.
+	ResourceLimits map[string]*string
+}
+
+type SecretRef struct {
+	Name    string
+	Version string
+}
+
+type Resource interface {
+	cdktf.TerraformResource
+
+	Name() *string
 }
 
 type Builder interface {
@@ -33,13 +46,16 @@ type Builder interface {
 	AddEnv(key, value string)
 	// AddSecretEnv adds an environment variable to the resource, and should only
 	// be used before Build.
-	AddSecretEnv(key, secretName string)
+	AddSecretEnv(key string, secret SecretRef)
 	// AddVolumeMount adds a volume mount to the resource, and should only be
 	// used before Build.
-	AddVolumeMount(mountPath, name string)
+	AddVolumeMount(name, mountPath string)
+	// AddVolumeMount adds a volume mount sourced from a secret to the resource,
+	// and should only be used before Build.
+	AddSecretVolume(name, mountPath string, secret SecretRef, mode int)
 
 	// Build finalizes the resource.
-	Build(cdktf.TerraformStack, Variables) (cdktf.TerraformResource, error)
+	Build(cdktf.TerraformStack, Variables) (Resource, error)
 }
 
 const (

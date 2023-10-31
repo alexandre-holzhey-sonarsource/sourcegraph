@@ -1,14 +1,17 @@
 package cloudrun
 
 import (
+	"bytes"
 	"fmt"
+	"html/template"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/aws/jsii-runtime-go"
-	"github.com/sourcegraph/managed-services-platform-cdktf/gen/google/cloudrunv2service"
-	"github.com/sourcegraph/managed-services-platform-cdktf/gen/google/cloudrunv2serviceiammember"
 	"github.com/sourcegraph/managed-services-platform-cdktf/gen/google/projectiamcustomrole"
+	"golang.org/x/exp/maps"
+	"golang.org/x/exp/slices"
 
 	"github.com/sourcegraph/sourcegraph/dev/managedservicesplatform/googlesecretsmanager"
 	"github.com/sourcegraph/sourcegraph/dev/managedservicesplatform/internal/resource/bigquery"
@@ -142,6 +145,14 @@ func NewStack(stacks *stack.Set, vars Variables) (*Output, error) {
 	// convention across MSP services.
 	cloudRunBuilder.AddEnv("DIAGNOSTICS_SECRET", diagnosticsSecret.HexValue)
 
+	// Add user-configured env vars
+	if err := addContainerEnvVars(cloudRunBuilder, vars.Environment.Env, vars.Environment.SecretEnv, envVariablesData{
+		ProjectID:      vars.ProjectID,
+		ServiceDnsName: vars.Environment.Domain.GetDNSName(),
+	}); err != nil {
+		return nil, errors.Wrap(err, "add user env vars")
+	}
+
 	// Set up build configuration.
 	cloudRunBuildVars := builder.Variables{
 		Service:     vars.Service,
@@ -176,6 +187,7 @@ func NewStack(stacks *stack.Set, vars Variables) (*Output, error) {
 				}(),
 			}),
 		DiagnosticsSecret: diagnosticsSecret,
+		ResourceLimits:    makeContainerResourceLimits(vars.Environment.Instances.Resources),
 	}
 
 	if vars.Environment.Resources.NeedsCloudRunConnector() {
@@ -205,26 +217,16 @@ func NewStack(stacks *stack.Set, vars Variables) (*Output, error) {
 		cloudRunBuilder.AddEnv("REDIS_ENDPOINT", redisInstance.Endpoint)
 
 		caCertVolumeName := "redis-ca-cert"
-		// TODO
-		cloudRun.AdditionalVolumes = append(cloudRun.AdditionalVolumes,
-			&cloudrunv2service.CloudRunV2ServiceTemplateVolumes{
-				Name: pointers.Ptr(caCertVolumeName),
-				Secret: &cloudrunv2service.CloudRunV2ServiceTemplateVolumesSecret{
-					Secret: &redisInstance.Certificate.ID,
-					Items: []*cloudrunv2service.CloudRunV2ServiceTemplateVolumesSecretItems{{
-						Version: &redisInstance.Certificate.Version,
-						Path:    pointers.Ptr("redis-ca-cert.pem"),
-						Mode:    pointers.Float64(292), // 0444 read-only
-					}},
-				},
-			})
-		cloudRun.AdditionalVolumeMounts = append(cloudRun.AdditionalVolumeMounts,
-			&cloudrunv2service.CloudRunV2ServiceTemplateContainersVolumeMounts{
-				Name: pointers.Ptr(caCertVolumeName),
-				// TODO: Use subpath if google_cloud_run_v2_service adds support for it:
-				// https://registry.terraform.io/providers/hashicorp/google-beta/latest/docs/resources/cloud_run_v2_service#mount_path
-				MountPath: pointers.Ptr("/etc/ssl/custom-certs"),
-			})
+		cloudRunBuilder.AddSecretVolume(
+			caCertVolumeName,
+			"redis-ca-cert.pem",
+			builder.SecretRef{
+				Name:    redisInstance.Certificate.ID,
+				Version: redisInstance.Certificate.Version,
+			},
+			292, // 0444 read-only
+		)
+		cloudRunBuilder.AddVolumeMount(caCertVolumeName, "/etc/ssl/custom-certs")
 	}
 
 	// bigqueryDataset is only created and non-nil if BigQuery is configured for
@@ -237,38 +239,15 @@ func NewStack(stacks *stack.Set, vars Variables) (*Output, error) {
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to render BigQuery dataset")
 		}
-		cloudRun.AdditionalEnv = append(cloudRun.AdditionalEnv,
-			&cloudrunv2service.CloudRunV2ServiceTemplateContainersEnv{
-				Name:  pointers.Ptr(serviceEnvVarPrefix + "BIGQUERY_PROJECT_ID"),
-				Value: pointers.Ptr(bigqueryDataset.ProjectID),
-			}, &cloudrunv2service.CloudRunV2ServiceTemplateContainersEnv{
-				Name:  pointers.Ptr(serviceEnvVarPrefix + "BIGQUERY_DATASET"),
-				Value: pointers.Ptr(bigqueryDataset.Dataset),
-			}, &cloudrunv2service.CloudRunV2ServiceTemplateContainersEnv{
-				Name:  pointers.Ptr(serviceEnvVarPrefix + "BIGQUERY_TABLE"),
-				Value: pointers.Ptr(bigqueryDataset.Table),
-			})
+		cloudRunBuilder.AddEnv(serviceEnvVarPrefix+"BIGQUERY_PROJECT_ID", bigqueryDataset.ProjectID)
+		cloudRunBuilder.AddEnv(serviceEnvVarPrefix+"BIGQUERY_DATASET", bigqueryDataset.Dataset)
+		cloudRunBuilder.AddEnv(serviceEnvVarPrefix+"BIGQUERY_TABLE", bigqueryDataset.Table)
 	}
 
-	// Finally, create the Cloud Run service with the finalized service
-	// configuration
-	service, err := cloudRun.Build(stack, vars)
+	cloudRunResource, err := cloudRunBuilder.Build(stack, cloudRunBuildVars)
 	if err != nil {
 		return nil, err
 	}
-
-	// Allow IAM-free access to the service - auth should be handled generally
-	// by the service itself.
-	//
-	// TODO: Parameterize this so internal services can choose to auth only via
-	// GCP IAM?
-	_ = cloudrunv2serviceiammember.NewCloudRunV2ServiceIamMember(stack, pointers.Ptr("cloudrun-allusers-runinvoker"), &cloudrunv2serviceiammember.CloudRunV2ServiceIamMemberConfig{
-		Name:     service.Name(),
-		Location: service.Location(),
-		Project:  &vars.ProjectID,
-		Member:   pointers.Ptr("allUsers"),
-		Role:     pointers.Ptr("roles/run.invoker"),
-	})
 
 	// Then whatever the user requested to expose the service publicly
 	switch domain := vars.Environment.Domain; domain.Type {
@@ -276,6 +255,10 @@ func NewStack(stacks *stack.Set, vars Variables) (*Output, error) {
 		// do nothing
 
 	case spec.EnvironmentDomainTypeCloudflare:
+		if vars.Service.Kind.Is(spec.ServiceKindJob) {
+			return nil, errors.New("domain not supported for 'kind: job'")
+		}
+
 		// set zero value for convenience
 		if domain.Cloudflare == nil {
 			return nil, errors.Newf("domain type %q specified but Cloudflare configuration is nil",
@@ -307,7 +290,7 @@ func NewStack(stacks *stack.Set, vars Variables) (*Output, error) {
 		lb, err := loadbalancer.New(stack, resourceid.New("loadbalancer"), loadbalancer.Config{
 			ProjectID:      vars.ProjectID,
 			Region:         gcpRegion,
-			TargetService:  service,
+			TargetService:  cloudRunResource,
 			SSLCertificate: sslCertificate,
 		})
 		if err != nil {
@@ -326,6 +309,50 @@ func NewStack(stacks *stack.Set, vars Variables) (*Output, error) {
 	return &Output{}, nil
 }
 
-var (
-	matchNonAlphaNumericRegex = regexp.MustCompile("[^a-zA-Z0-9]+")
-)
+var matchNonAlphaNumericRegex = regexp.MustCompile("[^a-zA-Z0-9]+")
+
+type envVariablesData struct {
+	ProjectID      string
+	ServiceDnsName string
+}
+
+func addContainerEnvVars(
+	b builder.Builder,
+	env map[string]string,
+	secretEnv map[string]string,
+	varsData envVariablesData,
+) error {
+	// Apply static env vars
+	envKeys := maps.Keys(env)
+	slices.Sort(envKeys)
+	for _, k := range envKeys {
+		tmpl, err := template.New("").Parse(env[k])
+		if err != nil {
+			return errors.Wrapf(err, "parse env var template: %q", env[k])
+		}
+		var buf bytes.Buffer
+		if err = tmpl.Execute(&buf, varsData); err != nil {
+			return errors.Wrapf(err, "execute template: %q", env[k])
+		}
+
+		b.AddEnv(k, buf.String())
+	}
+
+	// Apply secret env vars
+	secretEnvKeys := maps.Keys(secretEnv)
+	slices.Sort(secretEnvKeys)
+	for _, k := range secretEnvKeys {
+		b.AddSecretEnv(k, builder.SecretRef{
+			Name: secretEnv[k],
+		})
+	}
+
+	return nil
+}
+
+func makeContainerResourceLimits(r spec.EnvironmentInstancesResourcesSpec) map[string]*string {
+	return map[string]*string{
+		"cpu":    pointers.Ptr(strconv.Itoa(r.CPU)),
+		"memory": pointers.Ptr(r.Memory),
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"github.com/grafana/regexp"
 
 	"github.com/sourcegraph/sourcegraph/lib/errors"
+	"github.com/sourcegraph/sourcegraph/lib/pointers"
 )
 
 type ServiceSpec struct {
@@ -64,6 +65,11 @@ const (
 	ServiceKindService = "service"
 	ServiceKindJob     = "job"
 )
+
+func (s *ServiceKind) Is(kind ServiceKind) bool {
+	configuredKind := pointers.Deref(s, ServiceKindService)
+	return configuredKind == kind
+}
 
 type ServiceIAMSpec struct {
 	// Services is a list of GCP services to enable in the service's project.
