@@ -54,7 +54,7 @@ func (c *serviceBuilder) AddVolumeMount(name, mountPath string) {
 
 func (c *serviceBuilder) Build(stack cdktf.TerraformStack, vars builder.Variables) (cdktf.TerraformResource, error) {
 	// TODO Make this fancier, for now this is just a sketch of maybe CD?
-	serviceImageTag, err := vars.Environment.Deploy.ResolveTag()
+	serviceImageTag, err := vars.Environment.Deploy.ResolveTag(vars.Image)
 	if err != nil {
 		return nil, err
 	}
