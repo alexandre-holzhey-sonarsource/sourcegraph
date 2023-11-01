@@ -8,6 +8,19 @@ class MyClass {
     private also_private_method() {}
 }
 
+export const SiteAdmin: StoryFn = args => {
+    const props = useMemo(() => commonProps(args), [args])
+    return (
+        <OpenByDefaultWrapper>
+            {({ menuButtonRef }) => (
+        <WebStory>
+            {webProps => <UserNavItem {...props} {...webProps} menuButtonRef={menuButtonRef} />}
+    </WebStory>
+    )}
+    </OpenByDefaultWrapper>
+)
+}
+
 interface MyInterface {
     bruh: number,
     sayBruh(): void,
@@ -38,4 +51,3 @@ var myObject = {
   myMethod: function() {},
   myArrow: () => {},
 };
-
