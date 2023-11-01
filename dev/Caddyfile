@@ -1,3 +1,7 @@
+{
+	auto_https disable_redirects
+}
+
 # Caddy (tls :3443) -> sourcegraph-frontend (:3082)
 {$SOURCEGRAPH_HTTPS_DOMAIN}:{$SOURCEGRAPH_HTTPS_PORT} {
 	tls internal

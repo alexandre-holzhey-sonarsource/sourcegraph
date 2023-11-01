@@ -92,7 +92,8 @@ export function manifestPlugin(pluginConfig: ManifestPluginConfig): Plugin {
                         <script type="module" src="${url}@vite/client"></script>`,
                 }
                 for (const [entryAlias, entryPath] of Object.entries(inputs)) {
-                    manifest.assets[entryAlias] = {
+                    const relativeEntryAlias = normalizePath(path.relative(root, entryAlias))
+                    manifest.assets[relativeEntryAlias] = {
                         js: simplifyPath(entryPath),
                     }
                 }
@@ -112,6 +113,7 @@ export function manifestPlugin(pluginConfig: ManifestPluginConfig): Plugin {
             for (const chunk of Object.values(bundle)) {
                 if (chunk.type === 'chunk' && chunk.isEntry && chunk.facadeModuleId) {
                     let entryAlias = normalizePath(path.relative(root, chunk.facadeModuleId))
+                    console.log('entryAlias', entryAlias, 'root', root, 'chunk.facadeModuleId', chunk.facadeModuleId)
                     const css = chunk.viteMetadata ? Array.from(chunk.viteMetadata?.importedCss.values()) : []
                     if (css.length >= 2) {
                         throw new Error('multiple CSS asset files not supported')

@@ -10,7 +10,7 @@ import { manifestPlugin } from './manifestPlugin'
 /** Whether we're running in Bazel. */
 const BAZEL = !!process.env.BAZEL_BINDIR
 
-const repoRoot = BAZEL ? process.cwd() : path.join(__dirname, '../../..')
+const repoRoot = BAZEL ? process.cwd() : path.join(__dirname, '../../../..')
 const clientWebRoot = path.join(repoRoot, 'client/web')
 
 export default defineConfig(() => {
